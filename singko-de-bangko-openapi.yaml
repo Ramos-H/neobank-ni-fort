@@ -1,0 +1,411 @@
+# =============================================================================
+# Singko de Bangko — System-wide API Contract
+# =============================================================================
+# WHY THIS FILE EXISTS
+#   This is ONE spec covering all 3 business services (auth, account,
+#   transaction) even though they're separate Spring Boot apps. For a 5-hour
+#   sprint with 13 people split across 4 stories, a single shared contract
+#   file is what keeps Story 2/3 (who own auth & account/transaction) and
+#   Story 4 (us — Docker/observability) from silently drifting apart on
+#   field names, status codes, and who requires a JWT.
+#
+# HOW TO READ THE `servers` BLOCK
+#   Two entries on purpose:
+#     1. `gateway`  -> the ONLY host a real client (Postman, a frontend) ever
+#                      calls. Port 8080. JWT-protected routes are enforced
+#                      HERE, by JwtValidationFilter, before anything is
+#                      forwarded downstream.
+#     2. `internal` -> a documentation-only placeholder for calls that never
+#                      leave the Docker network (transaction-service calling
+#                      account-service's /debit and /credit directly via
+#                      Eureka, e.g. http://account-service/api/accounts/1/debit).
+#                      No client should ever hit this host; it exists so the
+#                      "Internal" tag's paths have somewhere to point.
+#
+# SECURITY MODEL AT A GLANCE
+#   - Public, unauthenticated : POST /api/auth/login
+#   - Gateway-JWT required    : GET  /api/accounts/{id}/balance
+#                                POST /api/transactions/transfer
+#   - Internal / trusted-network only, NO JWT (never routed through gateway):
+#                                POST /api/accounts/{id}/debit
+#                                POST /api/accounts/{id}/credit
+#   - Observability (Story 4 scope), open within the Docker network only,
+#     never exposed through the gateway to the internet:
+#                                GET  /actuator/health
+#                                GET  /actuator/prometheus
+# =============================================================================
+
+openapi: 3.1.0
+
+info:
+  title: Singko de Bangko — NeoBank MVP API
+  version: "0.2.0"
+  description: >
+    Shared contract for the 5-hour microservices sprint. v0.2.0 adds the
+    `auth-service` database (Story 4 note: previously an in-memory demo
+    customer list — see the `Customer` schema and the assumption callout
+    below) but keeps the public request/response shapes for
+    `/api/auth/login` unchanged, so no downstream team has to change code.
+  contact:
+    name: Team Story 4 — Docker / Observability
+
+servers:
+  - url: http://localhost:8080
+    description: gateway — the single entry point every real client uses
+  - url: http://account-service:8082
+    description: internal — Docker-network-only, reachable by other services via Eureka, never through the gateway
+
+tags:
+  - name: Auth
+    description: Public login, issued by auth-service, fronted by the gateway
+  - name: Accounts
+    description: Balance lookups (public via gateway) and balance mutation (internal only)
+  - name: Transactions
+    description: Fund transfer orchestration, fronted by the gateway
+  - name: Internal
+    description: Service-to-service calls that must never be reachable from outside the Docker network
+  - name: Observability
+    description: Story 4 added scope — Actuator/Prometheus endpoints scraped by Prometheus, visualized in Grafana
+
+paths:
+
+  # ---------------------------------------------------------------------
+  # AUTH
+  # ---------------------------------------------------------------------
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Exchange username/password for a JWT
+      description: >
+        Open path on the gateway (no Authorization header required or checked).
+        auth-service now looks the customer up in `db-auth` (see Customer
+        schema) instead of the old hardcoded `List<CustomerRecord>` — the
+        request/response bodies are unchanged, so this is a backend-only swap.
+      operationId: login
+      security: []   # explicitly public — overrides any global security
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              demoCustomer:
+                value: { username: juan, password: password123 }
+      responses:
+        '200':
+          description: Credentials valid — JWT issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid username or password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Missing/blank username or password (Jakarta Validation on LoginRequest)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ---------------------------------------------------------------------
+  # ACCOUNTS — public read
+  # ---------------------------------------------------------------------
+  /api/accounts/{id}/balance:
+    get:
+      tags: [Accounts]
+      summary: Get an account's current balance
+      description: >
+        Protected route. Gateway's JwtValidationFilter checks the token's
+        signature/expiry BEFORE this ever reaches account-service; a missing
+        or invalid token gets a 401 straight from the gateway (account-service
+        never even sees the request in that case).
+      operationId: getBalance
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      responses:
+        '200':
+          description: Account found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '401':
+          description: Missing/invalid/expired JWT (rejected by the gateway)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No account with that id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ---------------------------------------------------------------------
+  # ACCOUNTS — internal mutation (debit/credit)
+  # ---------------------------------------------------------------------
+  /api/accounts/{id}/debit:
+    post:
+      tags: [Internal]
+      summary: "[Internal] Subtract an amount from an account"
+      description: >
+        Called ONLY by transaction-service, service-to-service via Eureka
+        (`http://account-service/...`). Deliberately NOT routed through the
+        gateway and carries NO JWT check — it is reachable only because it's
+        on the same Docker bridge network, which is why this path must never
+        be added to the gateway's route config.
+      operationId: debitAccount
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdjustBalanceRequest'
+      responses:
+        '200':
+          description: Debit applied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '400':
+          description: Insufficient funds
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No account with that id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/accounts/{id}/credit:
+    post:
+      tags: [Internal]
+      summary: "[Internal] Add an amount to an account"
+      description: Same trust model as `/debit` above — internal, no JWT.
+      operationId: creditAccount
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdjustBalanceRequest'
+      responses:
+        '200':
+          description: Credit applied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '404':
+          description: No account with that id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ---------------------------------------------------------------------
+  # TRANSACTIONS
+  # ---------------------------------------------------------------------
+  /api/transactions/transfer:
+    post:
+      tags: [Transactions]
+      summary: Transfer funds between two accounts
+      description: >
+        Protected route. transaction-service creates a PENDING record, calls
+        account-service's /debit then /credit directly (bypassing the
+        gateway, see Internal tag), and marks the record SUCCESS or FAILED
+        based on the outcome.
+      operationId: transferFunds
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransferRequest'
+      responses:
+        '200':
+          description: Transfer attempted — check `status` field (SUCCESS or the record was still persisted as FAILED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+        '400':
+          description: Transfer failed (e.g. insufficient funds) — message includes the downstream error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing/invalid/expired JWT (rejected by the gateway)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ---------------------------------------------------------------------
+  # OBSERVABILITY — Story 4 added scope
+  # ---------------------------------------------------------------------
+  /actuator/health:
+    get:
+      tags: [Observability]
+      summary: Liveness/readiness probe, exposed by every one of the 5 services
+      operationId: actuatorHealth
+      security: []
+      responses:
+        '200':
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: UP }
+
+  /actuator/prometheus:
+    get:
+      tags: [Observability]
+      summary: Metrics in Prometheus text-exposition format
+      description: >
+        Scraped by the `prometheus` container on an interval, never called by
+        a human or a frontend directly. Not routed through the gateway —
+        Prometheus reaches each service by its Docker container name.
+      operationId: actuatorPrometheus
+      security: []
+      responses:
+        '200':
+          description: Plaintext Prometheus metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+
+# =============================================================================
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Enforced by the GATEWAY's JwtValidationFilter, not by the downstream
+        service itself. account-service/transaction-service trust that if a
+        request reached them through the gateway on a protected path, the
+        token was already validated (they may still read the
+        `X-Auth-Username` header the gateway attaches).
+
+  parameters:
+    AccountId:
+      name: id
+      in: path
+      required: true
+      description: Numeric account id (matches the demo seed data — 1 = juan, 2 = maria)
+      schema:
+        type: integer
+        format: int64
+        example: 1
+
+  schemas:
+
+    # --- Auth ---------------------------------------------------------
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, example: juan }
+        password: { type: string, format: password, example: password123 }
+
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: "Signed JWT — send as `Authorization: Bearer <token>` on every subsequent call"
+          example: eyJhbGciOiJIUzI1NiJ9...
+
+    Customer:
+      type: object
+      description: >
+        NEW in v0.2.0 — the row auth-service now reads from `db-auth`
+        instead of the old hardcoded in-memory list. ASSUMPTION (flag this
+        with Story 2's owners): password is stored hashed (BCrypt), and this
+        table is seeded at startup with the same two demo customers
+        (juan/maria) the rest of the system already expects. No public
+        endpoint exposes this schema directly today — it only backs
+        `/api/auth/login` internally. If you want a registration endpoint,
+        that's a separate decision to make explicitly, not assumed here.
+      properties:
+        id: { type: integer, format: int64, example: 1 }
+        username: { type: string, example: juan }
+        passwordHash: { type: string, description: BCrypt hash, not the plaintext password }
+        accountId:
+          type: integer
+          format: int64
+          description: Foreign key into account-service's Account (cross-service reference by id, not a DB-level FK — separate databases)
+          example: 1
+
+    # --- Accounts -------------------------------------------------------
+    Account:
+      type: object
+      properties:
+        id: { type: integer, format: int64, example: 1 }
+        ownerUsername: { type: string, example: juan }
+        balance: { type: number, format: double, example: 5000.00 }
+
+    AdjustBalanceRequest:
+      type: object
+      required: [amount]
+      properties:
+        amount:
+          type: number
+          format: double
+          minimum: 0
+          example: 500.00
+
+    # --- Transactions -----------------------------------------------------
+    TransferRequest:
+      type: object
+      required: [fromAccountId, toAccountId, amount]
+      properties:
+        fromAccountId: { type: integer, format: int64, example: 1 }
+        toAccountId: { type: integer, format: int64, example: 2 }
+        amount: { type: number, format: double, minimum: 0.01, example: 500.00 }
+
+    Transaction:
+      type: object
+      properties:
+        id: { type: integer, format: int64, example: 10 }
+        fromAccountId: { type: integer, format: int64, example: 1 }
+        toAccountId: { type: integer, format: int64, example: 2 }
+        amount: { type: number, format: double, example: 500.00 }
+        status:
+          type: string
+          enum: [PENDING, SUCCESS, FAILED]
+          example: SUCCESS
+        createdAt: { type: string, format: date-time }
+
+    # --- Shared -----------------------------------------------------------
+    ErrorResponse:
+      type: object
+      properties:
+        message: { type: string, example: "Invalid username or password" }

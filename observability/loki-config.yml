@@ -1,0 +1,34 @@
+# Minimal single-process Loki config (filesystem storage, no clustering).
+# This is the standard "getting started" shape from Loki's own docs — fine
+# for a local demo; not meant for production retention/scale.
+#
+# NOTE: double-check this against the "Get started" page for whichever Loki
+# image tag docker-compose.observability.yml pulls — Loki's schema_config
+# versioning has moved forward before, and if it has again, `docker compose
+# logs loki` will tell you exactly which field it wants changed.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h

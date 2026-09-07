@@ -1,0 +1,37 @@
+spring:
+  application:
+    name: log-ai-service
+
+server:
+  port: 8085
+
+# Emit our own console logs as structured JSON too (Spring Boot's built-in
+# structured logging support — zero extra dependency). Not required for this
+# service to work, just keeps its own logs consistent with what Promtail
+# expects to see from everyone else.
+logging:
+  structured:
+    format:
+      console: ecs
+
+# Where Promtail's target, Loki, is reachable. Defaults to the in-network
+# Docker Compose service name; override LOKI_URL if you run this outside Compose.
+loki:
+  base-url: ${LOKI_URL:http://loki:3100}
+
+ai:
+  gemini:
+    # Get a free key at https://aistudio.google.com/apikey — never commit it,
+    # it's read from the GEMINI_API_KEY env var (see .env.example at repo root).
+    api-key: ${GEMINI_API_KEY:}
+    model: ${GEMINI_MODEL:gemini-2.5-flash}
+  summarizer:
+    # How often the background job runs.
+    fixed-rate-ms: ${SUMMARY_INTERVAL_MS:120000}
+    # How far back each run looks for log lines.
+    lookback-minutes: ${SUMMARY_LOOKBACK_MINUTES:5}
+    # LogQL query — matches the "service" label Promtail attaches to every
+    # container's logs (see observability/promtail-config.yml) and filters
+    # to lines that look like problems, case-insensitively.
+    log-query: >-
+      {service=~".+"} |~ `(?i)error|exception|warn`

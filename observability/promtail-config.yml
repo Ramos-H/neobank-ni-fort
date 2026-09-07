@@ -1,0 +1,33 @@
+# Promtail auto-discovers every running container via the Docker socket and
+# ships its stdout/stderr logs to Loki — no per-service code changes needed,
+# so Story 2/3's services don't have to be touched for this to work.
+#
+# Requires docker-compose.observability.yml to mount BOTH:
+#   /var/run/docker.sock        -> container discovery
+#   /var/lib/docker/containers  -> the actual log files Docker writes
+# (see the comments in that file if either mount misbehaves on your machine)
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      # __meta_docker_container_name comes through as "/account-service" —
+      # strip the leading slash so the label just reads "account-service".
+      # This is the label our LogQL query in log-ai-service filters on.
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: 'service'
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: 'stream'

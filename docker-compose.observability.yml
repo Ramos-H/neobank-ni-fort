@@ -1,0 +1,58 @@
+# Run alongside the existing compose file, don't replace it:
+#   docker compose -f docker-compose.yml -f docker-compose.observability.yml up --build
+#
+# Kept as a SEPARATE file on purpose — this is Story 4's log-analysis slice
+# specifically. If a teammate is also adding Prometheus/Grafana for metrics,
+# they can add their own docker-compose.<theirs>.yml the same way and both
+# get merged in with one more -f flag, instead of everyone editing the same
+# docker-compose.yml and fighting over merge conflicts.
+#
+# No top-level `networks:` block here on purpose — `singko-network` is
+# already defined in docker-compose.yml, and Compose merges the two files
+# into one config when you pass both with -f, so referencing it by name
+# below is enough.
+
+services:
+
+  loki:
+    image: grafana/loki:3.3.2
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./observability/loki-config.yml:/etc/loki/local-config.yaml:ro
+    ports:
+      - "3100:3100"   # optional — lets you curl Loki from the host for debugging
+    networks:
+      - singko-network
+
+  promtail:
+    image: grafana/promtail:3.3.2
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./observability/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    depends_on:
+      - loki
+    networks:
+      - singko-network
+    # NOTE (Windows/Docker Desktop): this bind-mount pattern is the standard
+    # Promtail recipe and works through Docker Desktop's VM on Windows/Mac in
+    # the vast majority of setups. If `docker compose logs promtail` shows it
+    # discovering zero targets, that mount is the first thing to check.
+
+  log-ai-service:
+    build: ./log-ai-service
+    ports:
+      - "8085:8085"
+    environment:
+      LOKI_URL: http://loki:3100
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      # Optional overrides — uncomment to change the defaults baked into
+      # log-ai-service/src/main/resources/application.yaml:
+      # GEMINI_MODEL: gemini-2.5-flash
+      # SUMMARY_INTERVAL_MS: "120000"
+      # SUMMARY_LOOKBACK_MINUTES: "5"
+    depends_on:
+      - loki
+    networks:
+      - singko-network
