@@ -15,7 +15,7 @@ public class AccountController {
 
     // GET /api/accounts/{id}/balance 
     @GetMapping("/{id}/balance")
-    public ResponseEntity<?> getBalance(@PathVariable Long id) {
+    public ResponseEntity<?> getBalance(@PathVariable String id) {
         return repository.findById(id)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
@@ -23,7 +23,7 @@ public class AccountController {
 
     // POST /api/accounts/{id}/debit 
     @PostMapping("/{id}/debit")
-    public ResponseEntity<?> debit(@PathVariable Long id, @RequestBody AdjustBalanceRequest req) {
+    public ResponseEntity<?> debit(@PathVariable String id, @RequestBody AdjustBalanceRequest req) {
         return repository.findById(id).map(account -> {
             if (account.getBalance().compareTo(req.getAmount()) < 0) {
                 return ResponseEntity.badRequest().body("Insufficient funds");
@@ -36,7 +36,7 @@ public class AccountController {
 
     // POST /api/accounts/{id}/credit
     @PostMapping("/{id}/credit")
-    public ResponseEntity<?> credit(@PathVariable Long id, @RequestBody AdjustBalanceRequest req) {
+    public ResponseEntity<?> credit(@PathVariable String id, @RequestBody AdjustBalanceRequest req) {
         return repository.findById(id).map(account -> {
             account.setBalance(account.getBalance().add(req.getAmount()));
             repository.save(account);
