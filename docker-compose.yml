@@ -1,0 +1,89 @@
+services:
+
+  postgres-auth:
+    image: postgres:16
+    container_name: singko-auth-postgres
+    environment:
+      POSTGRES_DB: auth_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - auth-postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - singko-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d auth_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  discovery-server:
+    build: ./discovery-server
+    container_name: singko-discovery-server
+    ports:
+      - "8761:8761"
+    networks:
+      - singko-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8761/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  auth-service:
+    build: ./auth-service
+    container_name: singko-auth-service
+    ports:
+      - "8081:8081"
+    environment:
+      DB_HOST: postgres-auth
+      DB_PORT: 5432
+      DB_NAME: auth_db
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      JWT_SECRET: singko-de-bangko-super-secret-jwt-key-change-in-production-min32chars
+      JWT_EXPIRATION_MS: 3600000
+      EUREKA_HOST: discovery-server
+    depends_on:
+      postgres-auth:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+    networks:
+      - singko-network
+
+  api-gateway:
+    build: ./api-gateway
+    container_name: singko-api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      JWT_SECRET: singko-de-bangko-super-secret-jwt-key-change-in-production-min32chars
+      EUREKA_HOST: discovery-server
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+    networks:
+      - singko-network
+
+  account-service:
+    build: ./account-service
+    container_name: singko-account-service
+    ports:
+      - "8082:8082"
+    environment:
+      EUREKA_HOST: discovery-server
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+    networks:
+      - singko-network
+
+networks:
+  singko-network:
+    driver: bridge
+
+volumes:
+  auth-postgres-data:

@@ -1,0 +1,12 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/auth_db
+    username: postgres
+    password: postgres
+
+jwt:
+  secret: singko-de-bangko-super-secret-jwt-key-change-in-production-min32chars
+
+eureka:
+  client:
+    enabled: false
