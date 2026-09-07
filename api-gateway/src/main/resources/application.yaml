@@ -1,3 +1,16 @@
+server:
+  port: 8080
+
 spring:
   application:
     name: api-gateway
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    register-with-eureka: true
+    fetch-registry: true
+
+jwt:
+  secret: ${JWT_SECRET:dGhpcy1pcy1hLXNlY3JldC1rZXktZm9yLWp3dC1hdXRoZW50aWNhdGlvbi1pbi1uZW9iYW5rLW1pY3Jvc2VydmljZXMtMjU2Yml0cw==}
