@@ -1,0 +1,46 @@
+package com.neobank.account_service;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/accounts")
+public class AccountController {
+
+    private final AccountRepository repository;
+
+    public AccountController(AccountRepository repository) {
+        this.repository = repository;
+    }
+
+    // GET /api/accounts/{id}/balance — read-only lookup, called through the Gateway
+    @GetMapping("/{id}/balance")
+    public ResponseEntity<?> getBalance(@PathVariable Long id) {
+        return repository.findById(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    // POST /api/accounts/{id}/debit — called by transaction-service, not the public client
+    @PostMapping("/{id}/debit")
+    public ResponseEntity<?> debit(@PathVariable Long id, @RequestBody AdjustBalanceRequest req) {
+        return repository.findById(id).map(account -> {
+            if (account.getBalance().compareTo(req.getAmount()) < 0) {
+                return ResponseEntity.badRequest().body("Insufficient funds");
+            }
+            account.setBalance(account.getBalance().subtract(req.getAmount()));
+            repository.save(account);
+            return ResponseEntity.ok(account);
+        }).orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    // POST /api/accounts/{id}/credit — called by transaction-service
+    @PostMapping("/{id}/credit")
+    public ResponseEntity<?> credit(@PathVariable Long id, @RequestBody AdjustBalanceRequest req) {
+        return repository.findById(id).map(account -> {
+            account.setBalance(account.getBalance().add(req.getAmount()));
+            repository.save(account);
+            return ResponseEntity.ok(account);
+        }).orElseGet(() -> ResponseEntity.notFound().build());
+    }
+}
