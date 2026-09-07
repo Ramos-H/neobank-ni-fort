@@ -1,0 +1,15 @@
+# Tells Grafana "watch this folder on disk and auto-load any dashboard JSON
+# you find there" - so story4-service-overview.json shows up on first boot
+# with zero manual import steps.
+
+apiVersion: 1
+
+providers:
+  - name: "Story 4 dashboards"
+    orgId: 1
+    folder: "Singko de Bangko"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/dashboards

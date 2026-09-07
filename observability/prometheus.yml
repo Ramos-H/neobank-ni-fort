@@ -1,0 +1,39 @@
+# Prometheus scrape config for Story 4 (observability).
+#
+# Targets use Docker Compose service names, not localhost - Prometheus runs
+# inside the same 'singko-network' bridge (see docker-compose.observability.yml)
+# and resolves other containers by their service name, the same way
+# transaction-service resolves account-service via Eureka.
+#
+# Ports here match the "Component Responsibilities" table in
+# Architecture_and_Techstack.md - if Stories 1-3 change a service's port,
+# update it here too.
+
+global:
+  scrape_interval: 15s # how often Prometheus pulls fresh metrics from each target
+
+scrape_configs:
+  - job_name: "discovery-server"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["discovery-server:8761"]
+
+  - job_name: "api-gateway"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["api-gateway:8080"]
+
+  - job_name: "auth-service"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["auth-service:8081"]
+
+  - job_name: "account-service"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["account-service:8082"]
+
+  - job_name: "transaction-service"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["transaction-service:8083"]

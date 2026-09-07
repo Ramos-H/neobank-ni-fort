@@ -1,0 +1,30 @@
+# Grafana "provisioning" files are read on container startup and turned into
+# datasources automatically - no manual "Add data source" clicking in the UI.
+#
+# Two datasources on purpose: Prometheus for the new metrics work, and the
+# Loki that already exists for log-ai-service's log pipeline. Wiring both
+# into the same Grafana is what gets you "one UI for metrics AND logs"
+# without standing up a second log stack.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    # Fixed uid (instead of letting Grafana auto-generate one) so the
+    # provisioned dashboard JSON in ../dashboards/ can point at it reliably.
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+
+  - name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    # Same Loki container docker-compose.observability.yml already runs for
+    # log-ai-service - not a new one. Port 3100 is the same one exposed to
+    # the host for debugging in that file.
+    url: http://loki:3100
+    editable: true

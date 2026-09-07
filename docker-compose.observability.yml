@@ -1,11 +1,18 @@
 # Run alongside the existing compose file, don't replace it:
 #   docker compose -f docker-compose.yml -f docker-compose.observability.yml up --build
 #
-# Kept as a SEPARATE file on purpose — this is Story 4's log-analysis slice
-# specifically. If a teammate is also adding Prometheus/Grafana for metrics,
-# they can add their own docker-compose.<theirs>.yml the same way and both
-# get merged in with one more -f flag, instead of everyone editing the same
-# docker-compose.yml and fighting over merge conflicts.
+# Kept as a SEPARATE file on purpose — this is Story 4's full observability
+# slice: logs + AI analysis (loki, promtail, log-ai-service) AND metrics +
+# dashboards (prometheus, grafana). It's all one file because it's all one
+# team's scope (Story 4), so there's nothing to merge-conflict with Stories
+# 1-3, who never touch this file. If a *different* team ever adds its own
+# signal later, they can still add their own docker-compose.<theirs>.yml and
+# stack one more -f flag on top, instead of editing this one.
+#
+# See observability-decision.md for why this is Prometheus+Grafana and not
+# the fuller OpenTelemetry+Tempo+Mimir stack — short version: it would spin
+# up a second, redundant Loki next to the one already running below, and
+# tracing isn't part of Story 4's Definition of Done.
 #
 # No top-level `networks:` block here on purpose — `singko-network` is
 # already defined in docker-compose.yml, and Compose merges the two files
@@ -53,6 +60,41 @@ services:
       # SUMMARY_INTERVAL_MS: "120000"
       # SUMMARY_LOOKBACK_MINUTES: "5"
     depends_on:
+      - loki
+    networks:
+      - singko-network
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"   # optional — Prometheus's own UI, handy for sanity-checking targets
+    networks:
+      - singko-network
+    # NOTE: Prometheus starts fine even if a target (e.g. account-service)
+    # isn't up yet — it just marks that target "down" until the service
+    # registers. No `depends_on` needed for the 5 Java services here.
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    ports:
+      - "3000:3000"   # Grafana UI — http://localhost:3000
+    environment:
+      # Local demo only — do not reuse these credentials anywhere real.
+      # Override via a .env entry (GRAFANA_ADMIN_USER / GRAFANA_ADMIN_PASSWORD)
+      # if you want something other than the admin/admin default.
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_DEFAULT_THEME: dark
+    volumes:
+      # Provisioning files are read once on container start and turned into
+      # datasources/dashboards automatically — see the comments inside each
+      # file under observability/grafana/provisioning/ for how that works.
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/etc/grafana/dashboards:ro
+    depends_on:
+      - prometheus
       - loki
     networks:
       - singko-network

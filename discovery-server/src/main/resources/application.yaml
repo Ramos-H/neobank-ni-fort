@@ -1,3 +1,28 @@
 spring:
   application:
     name: discovery-server
+
+# Story 4 (observability): expose Actuator's health/metrics endpoints,
+# including the Prometheus scrape format at /actuator/prometheus.
+# This is additive to whatever Stories 1-3 put in this file (port,
+# Eureka client config, DB config, JWT, etc.) - it only adds the
+# 'management.*' block below.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  metrics:
+    tags:
+      # Tags every metric with the service name, so a single Prometheus/
+      # Grafana instance scraping all 5 services can tell them apart
+      # (Prometheus's own 'job' label already does this per-target, but
+      # an explicit 'application' tag makes ad-hoc PromQL queries easier).
+      application: ${spring.application.name}
