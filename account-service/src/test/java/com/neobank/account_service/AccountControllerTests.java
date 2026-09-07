@@ -121,6 +121,52 @@ class AccountControllerTests {
 				.andExpect(status().isNotFound());
 	}
 
+	@Test
+    void registerAccountCreatesFirstAccountWithFormattedIdAndInitialBalance() throws Exception {
+        when(accountRepository.count()).thenReturn(0L);
+        when(accountRepository.save(org.mockito.ArgumentMatchers.any(Account.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        mockMvc.perform(post("/api/accounts/register")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"customerId\":1,\"ownerUsername\":\"juan\",\"initialBalance\":1000.00}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.customerId").value(1))
+                .andExpect(jsonPath("$.accountId").value("001"))
+                .andExpect(jsonPath("$.ownerUsername").value("juan"))
+                .andExpect(jsonPath("$.balance").value(1000.00));
+    }
+
+    @Test
+    void registerAccountIncrementsGlobalAccountIdSequence() throws Exception {
+        when(accountRepository.count()).thenReturn(2L); // 2 existing accounts -> yields "003"
+        when(accountRepository.save(org.mockito.ArgumentMatchers.any(Account.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        mockMvc.perform(post("/api/accounts/register")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"customerId\":2,\"ownerUsername\":\"maria\",\"initialBalance\":500.00}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.customerId").value(2))
+                .andExpect(jsonPath("$.accountId").value("003"))
+                .andExpect(jsonPath("$.ownerUsername").value("maria"))
+                .andExpect(jsonPath("$.balance").value(500.00));
+    }
+
+    @Test
+    void registerAccountDefaultsToZeroBalanceWhenInitialBalanceNotProvided() throws Exception {
+        when(accountRepository.count()).thenReturn(0L);
+        when(accountRepository.save(org.mockito.ArgumentMatchers.any(Account.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        mockMvc.perform(post("/api/accounts/register")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"customerId\":1,\"ownerUsername\":\"juan\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.accountId").value("001"))
+                .andExpect(jsonPath("$.balance").value(0.00));
+    }
+
 	private Account account(String accountId, String ownerUsername, String balance) {
 		return new Account(1L, accountId, ownerUsername, new BigDecimal(balance));
 	}
