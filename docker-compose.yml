@@ -1,0 +1,85 @@
+version: "3.9"
+
+networks:
+  singko-network:
+    driver: bridge
+
+services:
+
+  db-account:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: accountdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    networks:
+      - singko-network
+
+  db-transaction:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: transactiondb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    networks:
+      - singko-network
+
+  discovery-server:
+    build: ./discovery-server
+    ports:
+      - "8761:8761"
+    networks:
+      - singko-network
+
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      EUREKA_URI: http://discovery-server:8761/eureka
+      JWT_SECRET: SingkoDeBangkoSuperSecretKeyForJWTSigning123456
+    depends_on:
+      - discovery-server
+    networks:
+      - singko-network
+
+  auth-service:
+    build: ./auth-service
+    ports:
+      - "8081:8081"
+    environment:
+      EUREKA_URI: http://discovery-server:8761/eureka
+      JWT_SECRET: SingkoDeBangkoSuperSecretKeyForJWTSigning123456
+    depends_on:
+      - discovery-server
+    networks:
+      - singko-network
+
+  account-service:
+    build: ./account-service
+    ports:
+      - "8082:8082"
+    environment:
+      EUREKA_URI: http://discovery-server:8761/eureka
+      DB_HOST: db-account
+      DB_PORT: 5432
+    depends_on:
+      - discovery-server
+      - db-account
+    networks:
+      - singko-network
+
+  transaction-service:
+    build: ./transaction-service
+    ports:
+      - "8083:8083"
+    environment:
+      EUREKA_URI: http://discovery-server:8761/eureka
+      DB_HOST: db-transaction
+      DB_PORT: 5432
+    depends_on:
+      - discovery-server
+      - db-transaction
+      - account-service
+    networks:
+      - singko-network
