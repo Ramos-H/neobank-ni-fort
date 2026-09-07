@@ -13,7 +13,7 @@ public class AccountController {
         this.repository = repository;
     }
 
-    // GET /api/accounts/{id}/balance — read-only lookup, called through the Gateway
+    // GET /api/accounts/{id}/balance 
     @GetMapping("/{id}/balance")
     public ResponseEntity<?> getBalance(@PathVariable Long id) {
         return repository.findById(id)
@@ -21,7 +21,7 @@ public class AccountController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    // POST /api/accounts/{id}/debit — called by transaction-service, not the public client
+    // POST /api/accounts/{id}/debit 
     @PostMapping("/{id}/debit")
     public ResponseEntity<?> debit(@PathVariable Long id, @RequestBody AdjustBalanceRequest req) {
         return repository.findById(id).map(account -> {
@@ -34,7 +34,7 @@ public class AccountController {
         }).orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    // POST /api/accounts/{id}/credit — called by transaction-service
+    // POST /api/accounts/{id}/credit
     @PostMapping("/{id}/credit")
     public ResponseEntity<?> credit(@PathVariable Long id, @RequestBody AdjustBalanceRequest req) {
         return repository.findById(id).map(account -> {
